@@ -151,7 +151,7 @@ export function setBroadcastUpdateFunction(fn: (data: any) => void) {
 require("dotenv").config();
 const API_HOST = process.env.GAME_API_HOST || "api.komisureiya.com";
 const API_KEY = process.env.GAME_API_KEY || "rfront2023";
-const APP_VERSION = "2.21";
+const APP_VERSION = "2.28";
 const LOCALE = "zh_TW";
 
 let userToken: string | null = null;
