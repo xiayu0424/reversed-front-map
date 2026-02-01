@@ -220,7 +220,7 @@ async function loginByEmailPassword(
 		};
 
 		if (!loginData?.data?.user_token || !loginData?.data?.user_id) {
-			throw new Error("Login response missing token or user_id.");
+			throw new Error("Login response missing token or user_id, error: " + JSON.stringify(loginData));
 		}
 		userToken = loginData.data.user_token;
 		userId = loginData.data.user_id;
