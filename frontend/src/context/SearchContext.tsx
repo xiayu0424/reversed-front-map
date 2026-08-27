@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { City } from '../types';
 import {useMapData} from "./MapContext";
 
@@ -78,7 +78,7 @@ export const SearchProvider = ({ children }: { children: ReactNode }) => {
         setIsDropdownVisible(false);
     }, [addToHistory]);
 
-    const value = {
+    const value = useMemo(() => ({
         query,
         setQuery,
         results,
@@ -88,7 +88,7 @@ export const SearchProvider = ({ children }: { children: ReactNode }) => {
         activate,
         collapse,
         handleCitySelection,
-    };
+    }), [query, results, history, isActive, isDropdownVisible, activate, collapse, handleCitySelection]);
 
     return <SearchContext.Provider value={value}>{children}</SearchContext.Provider>;
 };

@@ -1,4 +1,4 @@
-import React, {useState, useEffect, useRef} from "react";
+import React, {useState, useEffect, useRef, useCallback} from "react";
 import { City } from "../../types";
 import { FaHistory, FaLayerGroup, FaBraille, FaUpload, FaPlane, FaRoute } from "react-icons/fa";
 import { Delaunay } from 'd3-delaunay';
@@ -239,6 +239,16 @@ const TimelapseView: React.FC<TimelapseViewProps> = ({
 		}
 	};
 
+	// Stable identities so the ~270 CityMarkers keep their React.memo in
+	// timelapse mode too.
+	const handleTimelapseMapClick = useCallback(() => {
+		interaction.clearSelection();
+	}, [interaction.clearSelection]);
+
+	const handleTimelapseCityClick = useCallback((city: City) => {
+		interaction.selectCity(city);
+	}, [interaction.selectCity]);
+
 	useEffect(() => {
 		if (!isPlaying || !timelapseEvents.length) return;
 		const delay = BASE_PLAYBACK_DELAY / playbackSpeed;
@@ -280,8 +290,8 @@ const TimelapseView: React.FC<TimelapseViewProps> = ({
 			<MapView
 				cities={historicalCities}
 				nations={baseNations}
-				onMapClick={() => interaction.clearSelection()}
-				onCityClick={(city) => interaction.selectCity(city)}
+				onMapClick={handleTimelapseMapClick}
+				onCityClick={handleTimelapseCityClick}
 				isTimelapse={true}
 				voronoiGeometry={voronoiGeometry}
 			/>

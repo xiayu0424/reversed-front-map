@@ -15,8 +15,12 @@ import { mapBounds } from "../../constants";
 interface CityMarkerProps {
 	city: City;
 	currentZoom: number;
+	// Passed down rather than read from context: only the one or two markers
+	// whose hover state actually changed then re-render, instead of all ~270.
+	isHovered: boolean;
+	isHighlighted: boolean;
 	onCityClick: (city: City) => void;
-	onMouseOver: () => void;
+	onMouseOver: (cityId: number) => void;
 	onMouseOut: () => void;
 }
 
@@ -41,12 +45,14 @@ const TacticalMarkerIcon: React.FC<{ type: CityMarkerType }> = ({ type }) => {
 const CityMarker: React.FC<CityMarkerProps> = ({
 												   city,
 												   currentZoom,
+												   isHovered,
+												   isHighlighted,
 												   onCityClick,
 												   onMouseOver,
 												   onMouseOut,
 											   }) => {
 	// --- Fetch data from contexts ---
-	const { nations, nationIdToColorMap, hoveredCityId, highlightedCityIds, nationCodeColorMap } = useMapData();
+	const { nations, nationIdToColorMap, nationCodeColorMap } = useMapData();
 	const { cityMarkers, isAnimating, attackableCities } = useUserInteraction();
 	const { isTacticalMode } = useUIView();
 
@@ -57,8 +63,6 @@ const CityMarker: React.FC<CityMarkerProps> = ({
 
 	const capitalCityIds = useMemo(() => new Set(nations.map(n => n.capital?.id).filter(Boolean)), [nations]);
 	const isCapital = capitalCityIds.has(city.id);
-	const isHovered = hoveredCityId === city.id;
-	const isHighlighted = highlightedCityIds.includes(city.id);
 	const showLabel = currentZoom > MIN_ICON_ZOOM || isHovered;
 	const isAttackable = attackableCities?.has(city.id) ?? false;
 	const attackInfo = attackableCities?.get(city.id) ?? null;
@@ -127,7 +131,7 @@ const CityMarker: React.FC<CityMarkerProps> = ({
 	}, [isCapital, inBattle, nationColor, currentZoom, isAnimating, city.nation_battle, nationCodeColorMap, isHighlighted, cityMarkers, isAttackable, isTacticalMode]);
 
 	return (
-		<Marker position={[mapBounds[1][0] - city.y_position, city.x_position]} icon={cityIcon} eventHandlers={{ click: () => onCityClick(city), mouseover: onMouseOver, mouseout: onMouseOut }}>
+		<Marker position={[mapBounds[1][0] - city.y_position, city.x_position]} icon={cityIcon} eventHandlers={{ click: () => onCityClick(city), mouseover: () => onMouseOver(city.id), mouseout: onMouseOut }}>
 			{showLabel && (
 				<Tooltip permanent direction="right" offset={[10, 0]} className="city-label">
 					<span style={{ fontSize: `${fontSize}px` }}>

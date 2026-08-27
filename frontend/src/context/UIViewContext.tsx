@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, ReactNode } from 'react';
 
 type RightPanel = 'ranking' | 'tactical' | 'none';
 
@@ -37,15 +37,17 @@ export const UIViewProvider = ({ children }: { children: ReactNode }) => {
     const enterTimelapse = useCallback(() => setIsTimelapseMode(true), []);
     const exitTimelapse = useCallback(() => setIsTimelapseMode(false), []);
 
-    const toggleRankingPanel = () => {
+    const toggleRankingPanel = useCallback(() => {
         setActiveRightPanel(prev => prev === 'ranking' ? 'none' : 'ranking');
-    };
+    }, []);
 
-    const toggleTacticalPanel = () => {
+    const toggleTacticalPanel = useCallback(() => {
         setActiveRightPanel(prev => prev === 'tactical' ? 'none' : 'tactical');
-    };
+    }, []);
 
-    const value = {
+    // Memoised: CityMarker reads isTacticalMode from here, so a fresh object
+    // on every render would re-render all ~270 markers.
+    const value = useMemo(() => ({
         isPathsVisible,
         isAirRoutesVisible,
         isTimelapseMode,
@@ -61,7 +63,22 @@ export const UIViewProvider = ({ children }: { children: ReactNode }) => {
         toggleRankingPanel,
         toggleTacticalPanel,
         setActiveRightPanel,
-    };
+    }), [
+        isPathsVisible,
+        isAirRoutesVisible,
+        isTimelapseMode,
+        isVoronoiVisible,
+        isTacticalMode,
+        activeRightPanel,
+        togglePaths,
+        toggleAirRoutes,
+        toggleVoronoi,
+        toggleTacticalMode,
+        enterTimelapse,
+        exitTimelapse,
+        toggleRankingPanel,
+        toggleTacticalPanel,
+    ]);
 
     return <UIViewContext.Provider value={value}>{children}</UIViewContext.Provider>;
 };

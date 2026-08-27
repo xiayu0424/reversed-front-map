@@ -87,7 +87,6 @@ const VoronoiLayer: React.FC<VoronoiLayerProps> = ({ cities, nations, mapImageBo
             <VoronoiBorders
                 voronoi={voronoi}
                 cities={cities}
-                nationColorMap={nationColorMap}
                 mapImageBounds={mapImageBounds}
             />
         </>

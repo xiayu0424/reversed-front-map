@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import { MapProvider } from './context/MapContext';
+import { HoverProvider } from './context/HoverContext';
 import { UserInteractionProvider } from './context/UserInteractionContext';
 import { UIViewProvider } from './context/UIViewContext';
 import reportWebVitals from './reportWebVitals';
@@ -14,13 +15,15 @@ const root = ReactDOM.createRoot(
 root.render(
     <React.StrictMode>
         <MapProvider>
-            <UserInteractionProvider>
-                <UIViewProvider>
-                    <SearchProvider>
-                        <App />
-                    </SearchProvider>
-                </UIViewProvider>
-            </UserInteractionProvider>
+            <HoverProvider>
+                <UserInteractionProvider>
+                    <UIViewProvider>
+                        <SearchProvider>
+                            <App />
+                        </SearchProvider>
+                    </UIViewProvider>
+                </UserInteractionProvider>
+            </HoverProvider>
         </MapProvider>
     </React.StrictMode>
 );

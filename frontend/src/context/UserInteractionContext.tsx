@@ -1,4 +1,4 @@
-import {createContext, useContext, useState, ReactNode, useCallback, useEffect} from 'react';
+import {createContext, useContext, useState, ReactNode, useCallback, useEffect, useMemo} from 'react';
 import { City, AttackInfo, UnionData, Nation } from '../types';
 import {LatLngTuple} from "leaflet";
 import {useMapData} from "./MapContext";
@@ -100,7 +100,7 @@ export const UserInteractionProvider = ({ children }: { children: ReactNode }) =
         }
     }, [selectedCity, clearSelection]);
 
-    const selectUnion = async (unionId: number) => {
+    const selectUnion = useCallback(async (unionId: number) => {
         if (isFetchingDetails) return;
         setIsFetchingDetails(true);
         clearSelection();
@@ -113,9 +113,9 @@ export const UserInteractionProvider = ({ children }: { children: ReactNode }) =
         } finally {
             setIsFetchingDetails(false);
         }
-    };
+    }, [isFetchingDetails, clearSelection]);
 
-    const selectNation = async (nationId: number) => {
+    const selectNation = useCallback(async (nationId: number) => {
         if (isFetchingDetails) return;
         setIsFetchingDetails(true);
         clearSelection();
@@ -128,7 +128,7 @@ export const UserInteractionProvider = ({ children }: { children: ReactNode }) =
         } finally {
             setIsFetchingDetails(false);
         }
-    };
+    }, [isFetchingDetails, clearSelection]);
 
 
     const onMapViewComplete = useCallback(() => setMapView(null), []);
@@ -154,7 +154,9 @@ export const UserInteractionProvider = ({ children }: { children: ReactNode }) =
         setUserRoutes(prev => prev.filter(r => r.id !== routeId));
     }, []);
 
-    const value = {
+    // Memoised: CityMarker consumes this context, so an unstable value here
+    // re-renders all ~270 markers on any unrelated render.
+    const value = useMemo(() => ({
         selectedCity, selectedUnion, selectedNation, isFetchingDetails,
         mapView, isAnimating,
         selectCity, selectUnion, selectNation, clearSelection,
@@ -166,7 +168,19 @@ export const UserInteractionProvider = ({ children }: { children: ReactNode }) =
         routeColor, setRouteColor,
         attackableCities, setAttackableCities,
         markingMode, setMarkingMode,
-    };
+    }), [
+        selectedCity, selectedUnion, selectedNation, isFetchingDetails,
+        mapView, isAnimating,
+        selectCity, selectUnion, selectNation, clearSelection,
+        onMapViewComplete, onAnimationEnd,
+        cityMarkers, setCityMarker,
+        drawingMode,
+        userRoutes, addUserRoute, removeUserRoute,
+        startCity,
+        routeColor,
+        attackableCities,
+        markingMode,
+    ]);
 
     return (
         <UserInteractionContext.Provider value={value}>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
 	MapContainer,
 	Polyline,
@@ -14,9 +14,10 @@ import { City, Nation } from "../../types";
 import CityMarker from "./CityMarker";
 import { useMapData } from "../../context/MapContext";
 import {useUserInteraction} from "../../context/UserInteractionContext";
+import { useHover, EMPTY_HIGHLIGHT } from "../../context/HoverContext";
 import VoronoiLayer from './VoronoiLayer';
 import { VoronoiGeometry } from "../Timelapse/TimelapseView";
-import { mapBounds } from "../../constants";
+import { mapBounds, MAX_MAP_BOUNDS } from "../../constants";
 import TimelapseVoronoiLayer from "./TimelapseVoronoiLayer";
 import { useUIView } from "../../context/UIViewContext";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
@@ -31,6 +32,50 @@ L.Icon.Default.mergeOptions({
 	iconUrl,
 	shadowUrl,
 });
+
+interface MapControllerProps {
+	mapView: { center: LatLngTuple; zoom: number } | null;
+	onMapViewComplete: () => void;
+	isAnimating: boolean;
+	onAnimationEnd: () => void;
+	onMapClick: () => void;
+	onZoomChange: (zoom: number) => void;
+}
+
+/**
+ * Declared at module scope on purpose. Defining it inside MapComponent made it
+ * a brand new component type on every render, so React unmounted and remounted
+ * it — re-running its effects and re-binding every map event handler.
+ */
+const MapController: React.FC<MapControllerProps> = ({
+	mapView,
+	onMapViewComplete,
+	isAnimating,
+	onAnimationEnd,
+	onMapClick,
+	onZoomChange,
+}) => {
+	const map = useMap();
+
+	useEffect(() => {
+		if (mapView) {
+			map.flyTo(mapView.center, mapView.zoom);
+			onMapViewComplete();
+		}
+	}, [map, mapView, onMapViewComplete]);
+
+	useEffect(() => {
+		onZoomChange(map.getZoom());
+	}, [map, onZoomChange]);
+
+	useMapEvents({
+		zoomend: () => onZoomChange(map.getZoom()),
+		click: () => onMapClick(),
+		moveend: () => { if (isAnimating) onAnimationEnd(); },
+	});
+
+	return null;
+};
 
 interface MapComponentProps {
 	// Callbacks from parent
@@ -57,10 +102,14 @@ const MapComponent: React.FC<MapComponentProps> = ({
 		cities: liveCities,
 		paths,
 		nations: liveNations,
+	} = useMapData();
+
+	const {
 		hoveredCityId,
+		highlightedCityIds,
 		setHoveredCityId,
 		setHighlightedCityIds,
-	} = useMapData();
+	} = useHover();
 
 	const {
 		mapView,
@@ -68,7 +117,6 @@ const MapComponent: React.FC<MapComponentProps> = ({
 		isAnimating,
 		onAnimationEnd,
 		userRoutes,
-		removeUserRoute,
 		cityMarkers
 	} = useUserInteraction();
 
@@ -84,50 +132,97 @@ const MapComponent: React.FC<MapComponentProps> = ({
 	const isDesktop = useMediaQuery('(min-width: 1024px)');
 	const [currentZoom, setCurrentZoom] = useState(isDesktop ? -3 : -4);
 
-	const MapController = () => {
-		const map = useMap();
-		useEffect(() => { if (mapView) { map.flyTo(mapView.center, mapView.zoom); onMapViewComplete(); } }, [map, mapView]);
-		useEffect(() => { setCurrentZoom(map.getZoom()); }, [map]);
-		useMapEvents({
-			zoomend: () => setCurrentZoom(map.getZoom()),
-			click: () => onMapClick(),
-			moveend: () => { if (isAnimating) onAnimationEnd(); },
-		});
-		return null;
-	};
+	const handleZoomChange = useCallback((zoom: number) => setCurrentZoom(zoom), []);
 
-	const handleMouseOver = (cityId: number) => {
+	// Stable identities so React.memo on CityMarker actually holds.
+	const handleMouseOver = useCallback((cityId: number) => {
 		setHoveredCityId(cityId);
-		const connectedAirCityIds = paths.filter(p => p.type === "air" && (p.from === cityId || p.to === cityId)).map(p => (p.from === cityId ? p.to : p.from));
-		setHighlightedCityIds(connectedAirCityIds);
-	};
+		const connected = new Set<number>();
+		for (const p of paths) {
+			if (p.type !== "air") continue;
+			if (p.from === cityId) connected.add(p.to);
+			else if (p.to === cityId) connected.add(p.from);
+		}
+		setHighlightedCityIds(connected);
+	}, [paths, setHoveredCityId, setHighlightedCityIds]);
 
-	const handleMouseOut = () => {
+	const handleMouseOut = useCallback(() => {
 		setHoveredCityId(null);
-		setHighlightedCityIds([]);
-	};
+		setHighlightedCityIds(EMPTY_HIGHLIGHT);
+	}, [setHoveredCityId, setHighlightedCityIds]);
 
 	const cityMap = useMemo(() => new Map(cities.map(city => [city.id, city])), [cities]);
 
-	const pathLines = useMemo(() => {
-		return paths.map((path, index) => {
+	// Ground routes never depend on hover, so they are memoised separately from
+	// air routes. Hovering a city used to rebuild all ~480 polylines.
+	const groundPathLines = useMemo(() => {
+		if (!isPathsVisible) return [];
+		const lines: React.ReactElement[] = [];
+
+		paths.forEach((path, index) => {
+			if (path.type === "air") return;
 			const fromCity = cityMap.get(path.from);
 			const toCity = cityMap.get(path.to);
-			if (!fromCity || !toCity) return null;
-			const isAirRoute = path.type === "air";
-			const isHovered = hoveredCityId === fromCity.id || hoveredCityId === toCity.id;
-			if (isAirRoute && !isAirRoutesVisible && !isHovered) return null;
-			if (!isAirRoute && !isPathsVisible) return null;
-			let color, weight, dashArray, opacity;
+			if (!fromCity || !toCity) return;
+
+			let color = "rgba(255, 255, 255, 0.8)";
+			let weight = 2;
+			let dashArray: string | undefined;
+			let opacity = 0.8;
+
 			switch (path.type) {
-				case "rail": color = "rgba(255, 255, 255, 0.8)"; weight = 4; dashArray = undefined; opacity = 0.8; break;
-				case "road": color = "rgba(255, 255, 255, 0.8)"; weight = 2; dashArray = "4, 4"; opacity = 0.8; break;
-				case "air": color = "#FFD700"; weight = isHovered ? 3 : 2; dashArray = "10, 10"; opacity = isHovered ? 0.9 : 0.55; break;
+				case "rail": weight = 4; dashArray = undefined; break;
+				case "road": weight = 2; dashArray = "4, 4"; break;
 				case "sea": color = "#00BFFF"; weight = 2; dashArray = "12, 6, 3, 6"; opacity = 0.6; break;
 			}
-			return <Polyline key={`path-${index}`} positions={[[MAX_Y - fromCity.y_position, fromCity.x_position], [MAX_Y - toCity.y_position, toCity.x_position]]} pathOptions={{ color, weight, dashArray, opacity }} />;
-		}).filter(Boolean);
-	}, [paths, cityMap, MAX_Y, isAirRoutesVisible, isPathsVisible, hoveredCityId]);
+
+			lines.push(
+				<Polyline
+					key={`path-${index}`}
+					positions={[
+						[MAX_Y - fromCity.y_position, fromCity.x_position],
+						[MAX_Y - toCity.y_position, toCity.x_position],
+					]}
+					pathOptions={{ color, weight, dashArray, opacity }}
+				/>
+			);
+		});
+
+		return lines;
+	}, [paths, cityMap, MAX_Y, isPathsVisible]);
+
+	// Only the ~22 air routes react to hover, so this rebuild is cheap.
+	const airPathLines = useMemo(() => {
+		const lines: React.ReactElement[] = [];
+
+		paths.forEach((path, index) => {
+			if (path.type !== "air") return;
+			const fromCity = cityMap.get(path.from);
+			const toCity = cityMap.get(path.to);
+			if (!fromCity || !toCity) return;
+
+			const isHovered = hoveredCityId === fromCity.id || hoveredCityId === toCity.id;
+			if (!isAirRoutesVisible && !isHovered) return;
+
+			lines.push(
+				<Polyline
+					key={`path-${index}`}
+					positions={[
+						[MAX_Y - fromCity.y_position, fromCity.x_position],
+						[MAX_Y - toCity.y_position, toCity.x_position],
+					]}
+					pathOptions={{
+						color: "#FFD700",
+						weight: isHovered ? 3 : 2,
+						dashArray: "10, 10",
+						opacity: isHovered ? 0.9 : 0.55,
+					}}
+				/>
+			);
+		});
+
+		return lines;
+	}, [paths, cityMap, MAX_Y, isAirRoutesVisible, hoveredCityId]);
 
 	const userRouteLines = useMemo(() => {
 		return userRoutes.map(route => {
@@ -166,9 +261,7 @@ const MapComponent: React.FC<MapComponentProps> = ({
 				</React.Fragment>
 			);
 		}).filter(Boolean);
-	}, [userRoutes, cityMap, MAX_Y, removeUserRoute, hoveredRouteId]);
-
-	const maxMapBounds: [LatLngTuple, LatLngTuple] = [[-1500, -1600], [7023 + 1500, 10516 + 1600]];
+	}, [userRoutes, cityMap, MAX_Y, hoveredRouteId]);
 
 	return (
 		<MapContainer
@@ -176,7 +269,7 @@ const MapComponent: React.FC<MapComponentProps> = ({
 			zoom={isDesktop ? -3 : -4}
 			minZoom={isDesktop ? -3 : -4}
 			maxZoom={0}
-			maxBounds={maxMapBounds}
+			maxBounds={MAX_MAP_BOUNDS}
 			zoomSnap={0.1}
 			zoomDelta={0.25}
 			zoomAnimation={false}
@@ -185,9 +278,17 @@ const MapComponent: React.FC<MapComponentProps> = ({
 			style={{ height: "100%", width: "100%" }}
 			scrollWheelZoom={true}
 			zoomControl={false}
+			preferCanvas={true}
 		>
 			<ZoomControl position="bottomright" />
-			<MapController />
+			<MapController
+				mapView={mapView}
+				onMapViewComplete={onMapViewComplete}
+				isAnimating={isAnimating}
+				onAnimationEnd={onAnimationEnd}
+				onMapClick={onMapClick}
+				onZoomChange={handleZoomChange}
+			/>
 			<ImageOverlay url="/map.png" bounds={mapBounds} />
 
 			{isVoronoiVisible && (
@@ -204,20 +305,21 @@ const MapComponent: React.FC<MapComponentProps> = ({
 				)
 			)}
 
-			{pathLines}
+			{groundPathLines}
+			{airPathLines}
 			{userRouteLines}
-			{cities.map((city) => {
-				return (
-					<CityMarker
-						key={city.id}
-						city={city}
-						currentZoom={currentZoom}
-						onCityClick={onCityClick}
-						onMouseOver={() => handleMouseOver(city.id)}
-						onMouseOut={handleMouseOut}
-					/>
-				);
-			})}
+			{cities.map((city) => (
+				<CityMarker
+					key={city.id}
+					city={city}
+					currentZoom={currentZoom}
+					isHovered={hoveredCityId === city.id}
+					isHighlighted={highlightedCityIds.has(city.id)}
+					onCityClick={onCityClick}
+					onMouseOver={handleMouseOver}
+					onMouseOut={handleMouseOut}
+				/>
+			))}
 		</MapContainer>
 	);
 };

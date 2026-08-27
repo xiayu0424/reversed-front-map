@@ -18,10 +18,6 @@ interface MapState {
     nationIdToColorMap: Map<number, string>;
     codeToNationName: { [key: string]: string };
     isLoading: boolean;
-    hoveredCityId: number | null;
-    highlightedCityIds: number[];
-    setHoveredCityId: (id: number | null) => void;
-    setHighlightedCityIds: (ids: number[]) => void;
 }
 
 // Create the context with a default value
@@ -29,7 +25,7 @@ const MapContext = createContext<MapState | undefined>(undefined);
 
 // Create the Provider component
 export const MapProvider = ({ children }: { children: ReactNode }) => {
-    const [state, setState] = useState<Omit<MapState, 'nationCodeColorMap' | 'nationIdToColorMap' | 'isLoading' | 'hoveredCityId' | 'highlightedCityIds' | 'setHoveredCityId' | 'setHighlightedCityIds' | 'codeToNationName'>>({
+    const [state, setState] = useState<Omit<MapState, 'nationCodeColorMap' | 'nationIdToColorMap' | 'isLoading' | 'codeToNationName'>>({
         cities: [],
         paths: [],
         nations: [],
@@ -37,8 +33,6 @@ export const MapProvider = ({ children }: { children: ReactNode }) => {
         cityDetails: {},
     });
     const [isLoading, setIsLoading] = useState(true);
-    const [hoveredCityId, setHoveredCityId] = useState<number | null>(null);
-    const [highlightedCityIds, setHighlightedCityIds] = useState<number[]>([]);
 
     const handleWebSocketMessage: MessageHandler = useCallback((data: WebSocketMessage) => {
         switch (data.type) {
@@ -120,17 +114,16 @@ export const MapProvider = ({ children }: { children: ReactNode }) => {
     const codeToNationName = useMemo(() => Object.entries(NATION_CODE_MAP).reduce((acc, [name, code]) => { acc[code] = name; return acc; }, {} as { [key: string]: string }), []);
 
 
-    const value = {
+    // Memoised so consumers only re-render when the data actually changes.
+    // Previously this object was rebuilt on every MapProvider render, which
+    // defeated React.memo everywhere downstream.
+    const value = useMemo(() => ({
         ...state,
         nationCodeColorMap,
         nationIdToColorMap,
         isLoading,
-        hoveredCityId,
-        highlightedCityIds,
-        setHoveredCityId,
-        setHighlightedCityIds,
         codeToNationName,
-    };
+    }), [state, nationCodeColorMap, nationIdToColorMap, isLoading, codeToNationName]);
 
     return (
         <MapContext.Provider value={value}>

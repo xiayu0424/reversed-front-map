@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from "react";
+import React, {useCallback, useEffect, useRef, useState} from "react";
 import "./App.css";
 
 // ---- Context hooks ----
@@ -136,18 +136,20 @@ function App() {
         }
     };
 
-    const handleCollapseAll = () => {
+    const handleCollapseAll = useCallback(() => {
         search.collapse();
         clearSelection();
         setDrawingMode('idle');
         setStartCity(null);
-    };
+    }, [search, clearSelection, setDrawingMode, setStartCity]);
 
-    const handleCitySelect = (city: City) => {
+    // Memoised: this is handed straight to every CityMarker, so an unstable
+    // identity here defeats their React.memo.
+    const handleCitySelect = useCallback((city: City) => {
         search.handleCitySelection(city);
         selectCity(city);
         search.activate({ showDropdown: false });
-    };
+    }, [search, selectCity]);
 
     const handleJumpToCity = (cityId: number) => {
         const city = cities.find(c => c.id === cityId);
@@ -167,11 +169,11 @@ function App() {
         search.activate({ showDropdown: false });
     };
 
-    const handleMapClick = () => {
+    const handleMapClick = useCallback(() => {
         if (search.isActive || selectedCity || selectedUnion || selectedNation) {
             handleCollapseAll();
         }
-    };
+    }, [search.isActive, selectedCity, selectedUnion, selectedNation, handleCollapseAll]);
 
     const handlePlanRouteClick = () => {
         if (drawingMode === 'idle') {
@@ -259,17 +261,18 @@ function App() {
         setIsSheetOpen(false);
     };
 
-    const openSheet = (content: typeof sheetContent) => {
+    const openSheet = useCallback((content: typeof sheetContent) => {
         setSheetContent(content);
         setIsSheetOpen(true);
-    };
+    }, []);
 
-    const handleCitySelectMobile = (city: City) => {
+    // Memoised for the same reason as handleCitySelect — it reaches CityMarker.
+    const handleCitySelectMobile = useCallback((city: City) => {
         if (!city) return;
 
         selectCity(city);
         openSheet('info'); // Open info panel in the sheet
-    };
+    }, [selectCity, openSheet]);
 
     // --- Render Logic ---
     if (isLoading) {
