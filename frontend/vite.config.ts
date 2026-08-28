@@ -22,8 +22,10 @@ const proxy = {
 export default defineConfig({
   plugins: [react()],
   server: {
-    // 監聽所有網路介面，讓 LAN 與 tailscale funnel 都連得進來
-    host: true,
+    // 只綁 loopback，避免暴露在公網介面（140.112.91.211）上。
+    // tailscale serve/funnel 從本機轉發到 127.0.0.1，外網存取不受影響。
+    // 需要讓同網段其他裝置直接連時，設 EXPOSE=1 再啟動。
+    host: process.env.EXPOSE ? true : '127.0.0.1',
     // 透過 tailscale funnel 存取時 Host header 會是 *.ts.net
     allowedHosts: ['.ts.net'],
     proxy,
@@ -31,7 +33,7 @@ export default defineConfig({
   // 對外（funnel / 行動網路）請用 preview 提供 production build：
   // dev server 會拆成數百個 module 請求，在高延遲連線上載不完會停在白畫面。
   preview: {
-    host: true,
+    host: process.env.EXPOSE ? true : '127.0.0.1',
     port: 4173,
     allowedHosts: ['.ts.net'],
     proxy,
