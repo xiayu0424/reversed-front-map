@@ -1,10 +1,17 @@
-version: '3.8'
 services:
   mongo:
     image: mongo:latest
     container_name: rf-map-mongo
+    restart: unless-stopped
+    # 只綁 127.0.0.1：先前綁在 0.0.0.0 且未啟用認證，
+    # 資料庫曾遭自動掃描的勒索機器人清空，請勿改回對外暴露。
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
+    # 帳密由根目錄 .env 提供（未設定時直接啟動失敗，避免又跑出無認證的實例）
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?MONGO_ROOT_USER is required}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?MONGO_ROOT_PASSWORD is required}
+    command: ["--auth"]
     volumes:
       - mongo-data:/data/db
 
