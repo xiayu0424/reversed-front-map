@@ -1,6 +1,8 @@
 import express from "express";
 import http from "http";
+import dotenv from "dotenv";
 import pino from 'pino';
+import mongoose from "mongoose";
 import WebSocket, { WebSocketServer } from "ws";
 import path from "path";
 import cors from "cors";
@@ -10,12 +12,18 @@ import {
 	getCities,
 	getNations, getUnionById,
 	getNationById,
+	getUnions,
 } from "./services/phoenixService";
 import fs from "fs";
 import { Path } from "./types";
 import connectDB from "./services/database";
 import {InitialState, TimelapseEvent} from "./types/timelapse";
+
+dotenv.config();
+
 const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));
+
+const isDatabaseConnected = () => mongoose.connection.readyState === 1;
 
 // Initialize logger
 const logger = pino({
@@ -30,21 +38,10 @@ const logger = pino({
     },
 });
 
-// 檢查 MONGODB_URI，如果存在才連接資料庫
-if (process.env.MONGODB_URI) {
-  connectDB().catch((error) => {
-    logger.error("[Server] Error connecting to database:", error);
-    process.exit(1);
-  });
-} else {
-  logger.warn("[Server] MONGODB_URI not found. Timelapse features will be disabled.");
-}
-
-
 connectDB().then(() => {
 	const app = express();
 	const server = http.createServer(app);
-	const wss = new WebSocketServer({server});
+	const wss = new WebSocketServer({ server, perMessageDeflate: true });
 
 	const corsOptions = {
 		origin: ['https://rf-map.onrender.com', 'http://localhost:5173'], // Allowed origins
@@ -88,17 +85,17 @@ connectDB().then(() => {
 
 		// Send initial data
 		const initialCities = getCities(); // Get current cities from phoenixService
-		if (initialCities.length > 0) {
-			ws.send(
-				JSON.stringify({ type: "initial_cities", payload: initialCities })
-			);
-		}
+		ws.send(
+			JSON.stringify({ type: "initial_cities", payload: initialCities })
+		);
 		const initialNations = getNations(); // Get current nations from phoenixService
-		if (initialNations.length > 0) {
-			ws.send(
-				JSON.stringify({ type: "initial_nations", payload: initialNations })
-			);
-		}
+		ws.send(
+			JSON.stringify({ type: "initial_nations", payload: initialNations })
+		);
+		const initialUnions = getUnions();
+		ws.send(
+			JSON.stringify({ type: "initial_unions", payload: initialUnions })
+		);
 		// Send path data
 		ws.send(JSON.stringify({ type: "initial_paths", payload: pathData }));
 		ws.send(JSON.stringify({ type: "initial_city_details", payload: cityDetailsData }));
@@ -190,7 +187,7 @@ connectDB().then(() => {
 	});
 
 	app.get('/api/timelapse/logs', async (_req, res) => {
-        if (!process.env.MONGODB_URI) {
+        if (!isDatabaseConnected()) {
             res.json([]); // 返回一個空陣列，這樣前端就不會出錯
             return;
         }
@@ -205,7 +202,7 @@ connectDB().then(() => {
 	});
 
 	app.get('/api/timelapse', async (req, res) => {
-        if (!process.env.MONGODB_URI) {
+        if (!isDatabaseConnected()) {
             res.status(503).json({ error: 'Database not configured. Timelapse is disabled.' });
             return;
         }
@@ -235,6 +232,10 @@ connectDB().then(() => {
 	});
 
 	app.get('/api/timelapse/export', async (req, res) => {
+		if (!isDatabaseConnected()) {
+			res.status(503).json({ error: 'Database not configured. Timelapse is disabled.' });
+			return;
+		}
 		const date = req.query.date as string;
 		if (!date) {
 			res.status(400).json({ error: 'Date parameter is required.' });

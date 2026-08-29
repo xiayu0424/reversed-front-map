@@ -2,6 +2,7 @@ import { Socket, Channel } from "phoenix";
 import axios from "axios";
 import FormData from "form-data";
 import pino from "pino";
+import mongoose from "mongoose";
 import {
 	CitiesResponse,
 	City,
@@ -26,6 +27,13 @@ const logger = pino({
         },
     },
 });
+
+const isDatabaseConnected = () => mongoose.connection.readyState === 1;
+
+// 戰報記錄開關：預設只有 production 記錄，
+// 本機要累積歷史資料時在 .env 設 TIMELAPSE_RECORDING=true 即可。
+const isTimelapseRecordingEnabled = () =>
+	process.env.NODE_ENV === 'production' || process.env.TIMELAPSE_RECORDING === 'true';
 
 /**
  * Pushes a message to a Phoenix channel with a longer timeout and retry logic.
@@ -70,6 +78,10 @@ async function pushWithRetry(
 }
 
 async function ensureInitialStateForDate(date: string, cities: City[]) {
+	// 沒開記錄或資料庫沒連上時直接跳過，否則 mongoose 會 buffer 到逾時才報錯。
+	if (!isTimelapseRecordingEnabled() || !isDatabaseConnected()) {
+		return;
+	}
 	// Prevent creating an initial state with an empty city list, which can happen during startup races.
 	if (!cities || cities.length === 0) {
 		logger.warn(`[PhoenixService] Attempted to save initial state for ${date} but cities array was empty. Aborting.`);
@@ -110,7 +122,7 @@ function getCurrentDateString() {
 }
 
 async function logTimelapseEvent(eventData: { cityId: number; newController: any; oldController: any;}) {
-	if (process.env.NODE_ENV !== 'production' || !process.env.MONGODB_URI) {
+	if (!isTimelapseRecordingEnabled() || !isDatabaseConnected()) {
         logger.debug(`[Timelapse] Skipping event log in non-production or no-DB environment.`);
         return;
     }
@@ -508,6 +520,10 @@ export async function startPhoenixConnection(
 }
 
 cron.schedule("0 3 * * *", async () => { // 每天凌晨 3 點執行
+	if (!isDatabaseConnected()) {
+		logger.debug("[Cron Job] Skipping cleanup because MongoDB is not connected.");
+		return;
+	}
 	logger.info("[Cron Job] Running daily cleanup of old timelapse data...");
 	try {
 		const thirtyDaysAgo = new Date();

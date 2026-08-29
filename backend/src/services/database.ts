@@ -6,16 +6,22 @@ const logger = pino({
 });
 
 const connectDB = async () => {
+    if (mongoose.connection.readyState === 1) {
+        logger.debug("[Database] MongoDB already connected.");
+        return;
+    }
+
+    if (!process.env.MONGODB_URI) {
+        logger.warn("[Database] MONGODB_URI is not defined. Timelapse features are disabled.");
+        return;
+    }
+
     try {
-        if (!process.env.MONGODB_URI) {
-            logger.error("[Database] MONGODB_URI is not defined in environment variables.");
-            process.exit(1);
-        }
         await mongoose.connect(process.env.MONGODB_URI);
         logger.info("[Database] MongoDB Connected...");
     } catch (err: any) {
         logger.error("[Database] MongoDB connection error:", err.message);
-        process.exit(1);
+        logger.warn("[Database] Timelapse features are disabled until MongoDB is available.");
     }
 };
 
