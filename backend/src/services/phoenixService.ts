@@ -174,14 +174,22 @@ let allPlayersChannel: Channel | null = null;
 let localeChannel: Channel | null = null;
 
 let isConnecting = false;
-let retryTimeout: NodeJS.Timeout | null = null;
+
+// 登入憑證留存在 module scope，重連時才有辦法重新登入換新的 user_token。
+let gameEmail: string | null = null;
+let gamePassword: string | null = null;
+
+// 連續斷線次數（成功連上就歸零）。超過門檻視為 token 失效，重新登入。
+let consecutiveFailures = 0;
+let isRefreshingToken = false;
+const RELOGIN_AFTER_FAILURES = 3;
+
+// socket.off() 是用 onOpen/onClose/onError 回傳的 ref 來比對，
+// 傳事件名稱字串不會移除任何東西，必須把 ref 存下來。
+let socketCallbackRefs: string[] = [];
 
 function cleanupConnection() {
 	logger.debug("[PhoenixService] Cleaning up existing connection...");
-	if (retryTimeout) {
-		clearTimeout(retryTimeout);
-		retryTimeout = null;
-	}
 
 	const channels = [playerChannel, allPlayersChannel, localeChannel];
 	channels.forEach(channel => {
@@ -191,9 +199,8 @@ function cleanupConnection() {
 	});
 
 	if (phoenixSocket) {
-		phoenixSocket.off(['open']);
-		phoenixSocket.off(['close']);
-		phoenixSocket.off(['error']);
+		phoenixSocket.off(socketCallbackRefs);
+		socketCallbackRefs = [];
 
 		phoenixSocket.disconnect();
 		logger.info("[PhoenixService] Phoenix socket disconnected.");
@@ -266,66 +273,82 @@ async function connectToPhoenix() {
 
 	isConnecting = true;
 
-	// 清理任何殘留的連線和計時器
+	// 清理任何殘留的連線
 	cleanupConnection();
 
 	const wsUrl = `wss://${API_HOST}/socket`;
 	phoenixSocket = new Socket(wsUrl, {
 		transport: WebSocket,
-		params: { userToken, locale: LOCALE },
+		// params 傳 function：phoenix 每次（含自動重連）都會重新求值，
+		// 所以重新登入換掉 userToken 後，下一次重連會自動帶上新 token。
+		params: () => ({ userToken, locale: LOCALE }),
 		heartbeatIntervalMs: 15000, // 15 seconds
 	});
     logger.debug(`[PhoenixService] Connecting to Phoenix WebSocket at ${wsUrl}...`);
 
-	let retryCount = 0;
-	const maxRetries = 5;
-
-	// Retry logic for connection
-	function retryConnection() {
-		if (retryCount < maxRetries) {
-			retryCount++;
-			logger.info(`[PhoenixService] Retrying connection... (Attempt ${retryCount})`);
-			connectToPhoenix();
-		} else {
-			logger.error("[PhoenixService] Max retries reached. Giving up on Phoenix WebSocket connection.");
+	// 重連完全交給 phoenix client 內建的 reconnectTimer（退避 10ms→…→5s，無上限），
+	// 心跳逾時也會由它偵測並重連。這裡只負責在連續失敗時重新登入換 token。
+	socketCallbackRefs.push(
+		phoenixSocket.onOpen(() => {
+			logger.info("[PhoenixService] Connected to Phoenix WebSocket!");
 			isConnecting = false;
-			phoenixSocket?.disconnect();
-		}
-	}
+			consecutiveFailures = 0;
+			joinAllChannels();
+		})
+	);
+	socketCallbackRefs.push(
+		phoenixSocket.onError((error: any) => {
+			logger.error("[PhoenixService] Phoenix WebSocket error:", error);
+		})
+	);
+	socketCallbackRefs.push(
+		phoenixSocket.onClose(() => {
+			isConnecting = false;
+			consecutiveFailures++;
+			logger.info(
+				`[PhoenixService] Phoenix WebSocket connection closed (連續失敗 ${consecutiveFailures} 次)，等待自動重連...`
+			);
 
-	phoenixSocket.onOpen(() => {
-		logger.info("[PhoenixService] Connected to Phoenix WebSocket!");
-		// Reset retry count on successful connection
-		isConnecting = false;
-		retryCount = 0;
-		joinAllChannels();
-	});
-	phoenixSocket.onError((error: any) => {
-		logger.error("[PhoenixService] Phoenix WebSocket error:", error);
-		// Retry connection on error
-
-		if (!isConnecting) {
-			isConnecting = true;
-			retryTimeout = setTimeout(() => {
-				logger.info("[PhoenixService] Retrying Phoenix WebSocket connection...");
-				retryConnection();
-			}, 5000);
-		}
-
-	});
-	phoenixSocket.onClose(() => {
-		logger.info("[PhoenixService] Phoenix WebSocket connection closed.");
-		// Retry connection
-		if (!isConnecting) {
-			isConnecting = true;
-			retryTimeout = setTimeout(() => {
-				logger.info("[PhoenixService] Retrying Phoenix WebSocket connection...");
-				retryConnection();
-			}, 5000);
-		}
-	});
+			// 連續失敗多次通常代表 user_token 已失效（過期、被撤銷、或被別處登入踢掉），
+			// 光是重連永遠不會成功，必須重新登入。
+			if (consecutiveFailures >= RELOGIN_AFTER_FAILURES) {
+				void refreshUserToken();
+			}
+		})
+	);
 
 	phoenixSocket.connect();
+}
+
+/**
+ * 重新登入取得新的 user_token。
+ * 不需要自己重連 —— phoenix 內建的 reconnectTimer 仍在跑，
+ * 且 params 是 closure，下一次重連會自動帶上這裡更新的 token。
+ */
+async function refreshUserToken() {
+	if (isRefreshingToken) {
+		return;
+	}
+	if (!gameEmail || !gamePassword) {
+		logger.error("[PhoenixService] 無法重新登入：沒有留存帳號密碼。");
+		return;
+	}
+
+	isRefreshingToken = true;
+	try {
+		logger.warn(
+			`[PhoenixService] 已連續失敗 ${consecutiveFailures} 次，嘗試重新登入以取得新的 user_token...`
+		);
+		await loginByEmailPassword(gameEmail, gamePassword);
+		logger.info("[PhoenixService] 重新登入成功，下一次自動重連將使用新的 token。");
+		// 歸零讓下一輪失敗能再次觸發重新登入（避免每次 close 都打登入 API）。
+		consecutiveFailures = 0;
+	} catch (error) {
+		logger.error("[PhoenixService] 重新登入失敗，將沿用舊 token 繼續重試。");
+		consecutiveFailures = 0;
+	} finally {
+		isRefreshingToken = false;
+	}
 }
 
 async function joinAllChannels() {
@@ -507,6 +530,10 @@ export async function startPhoenixConnection(
 		);
 		return;
 	}
+
+	// 留存憑證，重連時 token 失效才有辦法重新登入。
+	gameEmail = userEmail;
+	gamePassword = userPassword;
 
 	try {
 		await loginByEmailPassword(userEmail, userPassword);
