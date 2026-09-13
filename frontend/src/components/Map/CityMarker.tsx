@@ -141,11 +141,11 @@ const CityMarker: React.FC<CityMarkerProps> = ({
 								控制: {city.control_union?.name || "无"} <br />
 								{isCapital && "首都"}
 								{inBattle && <><br />{`交戰中 ${city.nation_battle_score || ""}`}</>}
-								{isAttackable && attackInfo && (
+								{isAttackable && (
 									<>
 										<br />
-										<span style={{color: '#ffaa00', fontWeight: 'bold'}}>可攻擊</span><br/>
-										<span>戰力: {attackInfo.maxPower}% | 跳躍: {attackInfo.minHops}</span>
+										<span style={{color: '#ffaa00', fontWeight: 'bold'}}>可攻擊</span>
+										{attackInfo && <><br/><span>戰力: {attackInfo.maxPower}% | 跳躍: {attackInfo.minHops}</span></>}
 									</>
 								)}
 							</>

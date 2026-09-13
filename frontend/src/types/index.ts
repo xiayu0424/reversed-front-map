@@ -15,6 +15,7 @@ export interface City {
   nation_battle_score?: string | null;
   nation_battle?: NationBattle;
   knife_clickable?: boolean;
+  attack_range_city_ids?: number[]; // 遊戲判定的可攻擊城鎮，含城鎮本身
   npc?: string[];
   rewards?: { [key: string]: number };
 }

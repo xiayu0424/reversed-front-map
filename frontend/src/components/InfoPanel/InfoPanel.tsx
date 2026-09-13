@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { City } from "../../types";
+import { AttackInfo, City } from "../../types";
 import { useUserInteraction } from "../../context/UserInteractionContext";
 import { useMapData } from "../../context/MapContext";
 import "./InfoPanel.css";
@@ -33,8 +33,19 @@ const InfoPanel: React.FC<InfoPanelProps> = ({
 
     useEffect(() => {
         if (selectedCity) {
-            const range = calculateAttackRange(selectedCity.id, paths);
-            setAttackableCities(range);
+            // 範圍以遊戲提供的 attack_range_city_ids 為準；遊戲沒有給戰力/跳躍，
+            // 這兩個值仍用 pathData 估算，估算不到的城鎮就只標示可攻擊。
+            const estimated = calculateAttackRange(selectedCity.id, paths);
+            const gameRange = selectedCity.attack_range_city_ids;
+            if (gameRange) {
+                const range = new Map<number, AttackInfo | null>();
+                for (const id of gameRange) {
+                    if (id !== selectedCity.id) range.set(id, estimated.get(id) ?? null);
+                }
+                setAttackableCities(range);
+            } else {
+                setAttackableCities(estimated);
+            }
         }
         return () => {
             setAttackableCities(null);

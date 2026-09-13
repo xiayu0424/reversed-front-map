@@ -41,8 +41,8 @@ interface UserInteractionState {
     setStartCity: (city: City | null) => void;
     routeColor: string;
     setRouteColor: (color: string) => void;
-    attackableCities: Map<number, AttackInfo> | null;
-    setAttackableCities: (cities: Map<number, AttackInfo> | null) => void;
+    attackableCities: Map<number, AttackInfo | null> | null;
+    setAttackableCities: (cities: Map<number, AttackInfo | null> | null) => void;
     markingMode: CityMarkerType | null;
     setMarkingMode: (mode: CityMarkerType | null) => void;
 }
@@ -63,7 +63,7 @@ export const UserInteractionProvider = ({ children }: { children: ReactNode }) =
     const [userRoutes, setUserRoutes] = useState<UserRoute[]>([]);
     const [startCity, setStartCity] = useState<City | null>(null);
     const [routeColor, setRouteColor] = useState('#ff4d4d');
-    const [attackableCities, setAttackableCities] = useState<Map<number, AttackInfo> | null>(null);
+    const [attackableCities, setAttackableCities] = useState<Map<number, AttackInfo | null> | null>(null);
     const [markingMode, setMarkingMode] = useState<CityMarkerType | null>(null);
 
     const clearSelection = useCallback(() => {
